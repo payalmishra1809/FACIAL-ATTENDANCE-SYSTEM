@@ -1,0 +1,109 @@
+import tkinter as tk
+from tkinter import messagebox, Listbox, Scrollbar
+import cv2
+import pandas as pd
+from datetime import datetime
+import mediapipe as mp
+import os
+import threading
+
+class FacialAttendance:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("🌸 Student Attendance System - 18 Students")
+        self.root.geometry("900x700")
+        self.root.configure(bg="#faf0e6")
+        
+        self.attendance = pd.DataFrame(columns=['Name', 'Time'])
+        self.is_running = False
+        
+        self.setup_gui()
+    
+    def setup_gui(self):
+        # Title
+        title = tk.Label(self.root, text="📚 FACIAL ATTENDANCE", 
+                        font=("Arial", 20, "bold"), bg="#faf0e6", fg="#FF69B4")
+        title.pack(pady=10)
+        
+        # Student List
+        tk.Label(self.root, text="Students (18 max)", font=("Arial", 12), 
+                bg="#faf0e6").pack()
+        scrollbar = Scrollbar(self.root)
+        self.student_listbox = Listbox(self.root, height=8, yscrollcommand=scrollbar.set)
+        scrollbar.config(command=self.student_listbox.yview)
+        self.student_listbox.pack(pady=10)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.refresh_students()
+        
+        # Buttons
+        btn_frame = tk.Frame(self.root, bg="#faf0e6")
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="▶️ START", bg="#90EE90", fg="white", 
+                 font=("Arial", 14, "bold"), width=12, command=self.start_attendance).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="⏹️ STOP", bg="#FFB6C1", fg="white", 
+                 font=("Arial", 14, "bold"), width=12, command=self.stop_attendance).pack(side=tk.LEFT, padx=10)
+        tk.Button(btn_frame, text="💾 SAVE", bg="#DDA0DD", fg="white", 
+                 font=("Arial", 14, "bold"), width=12, command=self.save_csv).pack(side=tk.LEFT, padx=10)
+        
+        # Attendance Preview
+        tk.Label(self.root, text="Today's Attendance", font=("Arial", 12), 
+                bg="#faf0e6").pack(anchor="w", padx=20)
+        self.attendance_listbox = Listbox(self.root, height=8)
+        self.attendance_listbox.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+    
+    def refresh_students(self):
+        self.student_listbox.delete(0, tk.END)
+        if os.path.exists('known_faces'):
+            for student_folder in os.listdir('known_faces'):
+                if os.path.isdir(f'known_faces/{student_folder}'):
+                    self.student_listbox.insert(tk.END, student_folder)
+    
+    def start_attendance(self):
+        if self.is_running: return
+        self.is_running = True
+        threading.Thread(target=self.attendance_loop, daemon=True).start()
+    
+    def stop_attendance(self):
+        self.is_running = False
+    
+    def attendance_loop(self):
+        mp_face_detection = mp.solutions.face_detection
+        cap = cv2.VideoCapture(0)
+        
+        with mp_face_detection.FaceDetection(min_detection_confidence=0.5) as face_detection:
+            while self.is_running:
+                ret, frame = cap.read()
+                if not ret: break
+                
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = face_detection.process(rgb_frame)
+                
+                if results.detections:
+                    # For now: ANY face = first student (add face matching later)
+                    student_name = "student1"  # TODO: Add real matching
+                    if student_name not in self.attendance['Name'].values:
+                        time = datetime.now().strftime('%H:%M:%S')
+                        self.attendance.loc[len(self.attendance)] = [student_name, time]
+                        self.root.after(0, lambda: self.update_attendance_list(student_name, time))
+                        print(f"✅ {student_name} marked!")
+                
+                cv2.imshow('Attendance Active', frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+        
+        cap.release()
+        cv2.destroyAllWindows()
+    
+    def update_attendance_list(self, name, time):
+        self.attendance_listbox.insert(0, f"{name} - {time}")
+    
+    def save_csv(self):
+        filename = f"attendance/class_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+        self.attendance.to_csv(filename, index=False)
+        messagebox.showinfo("Saved!", f"Saved to {filename}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = FacialAttendance(root)
+    root.mainloop()
